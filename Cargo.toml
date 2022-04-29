@@ -1,0 +1,17 @@
+[package]
+name = "open_lol"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+slint = { version = "0.2.1", git = "https://github.com/slint-ui/slint" }
+
+[profile.dev.build-override]
+opt-level = 2
+
+[profile.release]
+opt-level = 2
+lto = true
+codegen-units = 1
