@@ -1,23 +1,19 @@
-use std::env;
-use std::env::{args, current_dir, current_exe};
-use std::ffi::OsStr;
-use std::fs::remove_file;
-use std::iter::once;
-use std::os::windows::ffi::OsStrExt;
-use std::path::PathBuf;
-use std::process::exit;
-use std::ptr::null_mut;
+// #![windows_subsystem = "windows"]
 
-use ini::{Ini};
-use itertools::Itertools;
-use winapi::ctypes::c_int;
-use winapi::shared::minwindef::UINT;
+use std::env::{args, current_dir, current_exe};
+use std::fs::{File, remove_file};
+use std::io::Write;
+use std::os::windows::process::CommandExt;
+use std::path::PathBuf;
+use std::process::{Command, exit};
+
+use ini::Ini;
+use slint::re_exports::StandardButtonKind::ok;
 use winapi::um::winuser::{IDCANCEL, MB_OK, MB_OKCANCEL};
 
-use crate::open_file_dialog::FileFilter;
-use crate::open_file_dialog::open_file_dialog;
+use crate::win::*;
 
-mod open_file_dialog;
+mod win;
 
 slint::slint! {
     import { CheckBox,Button } from "std-widgets.slint";
@@ -27,10 +23,13 @@ slint::slint! {
         width: 500px;
         height: 300px;
 
+        property <bool> delete_dl_file;
+        //property <bool> disable_user_write;
+
         callback click();
 
         Image {
-            source: @image-url("src/bg.jpg");
+            source: @image-url("src/bg.png");
             width: parent.width;
             height: parent.height;
         }
@@ -46,14 +45,20 @@ slint::slint! {
                 Text { text: "1. 本软件为收费软件，费用为 0.00 美元。如果你以高于 0.00 美元的价格购得本软件，请及时告知作者，让本作者嘲笑一下。"; wrap: word-wrap; }
                 Text { text: "2. 本软件会使用一定的技术手段以避免被封号/误封号。但你的账号不论出于何种原因被封禁，本软件不承担任何责任及赔偿。"; wrap: word-wrap; }
                 Text { text: "3. 本软件使用共识式条款确认。即：你打开软件使用本软件视为同意本协议/条款。"; wrap: word-wrap; }
-                CheckBox {
+                deldl := CheckBox {
                     text:"删除WGTinyDL文件";
                     checked: true;
+                    toggled => {
+                        delete_dl_file = self.checked;
+                    }
                 }
-                CheckBox {
-                    text:"设置用户组禁止写入";
-                    checked: false;
-                }
+                // CheckBox {
+                //     text:"设置用户组禁止写入";
+                //     checked: false;
+                //     toggled => {
+                //         disable_user_write = self.checked;
+                //     }
+                // }
                 open_btn := Button {
                     text:"打开LOL";
                     clicked => {
@@ -66,17 +71,6 @@ slint::slint! {
     }
 }
 
-fn main() {
-    let main = MainWindow::new();
-    let lol_path = read_lol_path();
-    main.on_click(move || {
-        // lol_path;
-
-        check_ini(&lol_path);
-    });
-    main.run();
-}
-
 const LOL_EXE: &str = "Client.exe";
 const START_TIP: &str = r#"本程序有两种打开方式:
 最简单的办法就是把LOL的快捷方式或者是启动程序“Client.exe”拖放到本程序的图标上，本程序会把自身拷贝到C盘根目录下，并创建桌面快捷方式。需要删除时只需要删除桌面快捷方式和C盘根目录下的文件就可以完全删除;
@@ -86,9 +80,35 @@ const START_TIP: &str = r#"本程序有两种打开方式:
 \n\n
 祝你游戏愉快！"#;
 
+fn main() {
+    let main = MainWindow::new();
+    let lol_path = read_lol_path();
+
+    let delete_dl_file = main.get_delete_dl_file();
+    // let disable_user_write = main.get_disable_user_write();
+
+    main.on_click(move || {
+        let dir_path = &lol_path[0..lol_path.len() - LOL_EXE.len()];
+        if delete_dl_file {
+            remove_file(dir_path.to_owned() + &"WGTinyDL.dll");
+            remove_file(dir_path.to_owned() + &"WGTinyDL.exe");
+        }
+        check_ini(dir_path);
+        check_tmp(dir_path);
+
+        if let Err(e) = Command::new("cmd").creation_flags(0x08000000).arg("/c").arg(&lol_path).spawn() {
+            message_box(format!("检测到错误，下面是程序捕获的异常信息(仅供参考，未必有用)： {}", e.to_string()).as_str(), MB_OK);
+        }
+        exit(0);
+    });
+    main.run();
+}
+
 fn read_lol_path() -> String {
+    // return "C:\\Users\\Admin\\Desktop\\ss\\Client.exe".to_string();
     if args().count() > 0 {
-        let path = env::args().find_or_first(|arg| {
+        println!("{:?}", args());
+        let path = args().find(|arg| {
             arg.contains(LOL_EXE)
         }).unwrap_or_else(|| {
             message_box("未识别的文件或命令行", MB_OK);
@@ -113,7 +133,7 @@ fn read_lol_path() -> String {
         false => {
             check_path_ini(&conf_path).unwrap()
         }
-    }
+    };
 }
 
 fn check_path_ini(conf_path: &PathBuf) -> Option<String> {
@@ -134,30 +154,27 @@ fn check_path_ini(conf_path: &PathBuf) -> Option<String> {
     return Some(path);
 }
 
-fn message_box(msg: &str, btn_type: UINT) -> c_int {
-    use std::ffi::OsStr;
-    use std::iter::once;
-    use std::os::windows::ffi::OsStrExt;
-    use std::ptr::null_mut;
-    use winapi::um::winuser::{MB_OK, MessageBoxW};
-    let wide: Vec<u16> = OsStr::new(msg).encode_wide().chain(once(0)).collect();
-    return unsafe {
-        MessageBoxW(null_mut(), wide.as_ptr(), wide.as_ptr(), btn_type)
-    };
-}
-
 /// 检查当前exe目录是否正确
 fn check_current_exe_path() {
-    println!("{:?}",current_exe().unwrap());
-    println!("{:?}",PathBuf::from("c:\\".to_owned() + current_exe().unwrap().file_name().unwrap().to_str().unwrap()));
-    if current_exe().unwrap() == PathBuf::from("c:\\".to_owned() + current_exe().unwrap().file_name().unwrap().to_str().unwrap()) {
-        message_box("exe==", MB_OK);
-    } else {
-        message_box("exe!=", MB_OK);
+    let target_exe_path = PathBuf::from("c:\\".to_owned() + current_exe().unwrap().file_name().unwrap().to_str().unwrap());
+    println!("{:?}", current_exe().unwrap());
+    println!("{:?}", target_exe_path);
+    if current_exe().unwrap() != target_exe_path {
+        println!("执行cmd");
+        let copy = "copy ".to_owned() + &current_exe().unwrap().to_str().unwrap() + &" " + &target_exe_path.to_str().unwrap();
+        let start = "start ".to_owned() + &target_exe_path.to_str().unwrap();
+        let cmd = format!("{} && {} && {}","sleep 1",copy,start);
+        Command::new("cmd")
+            .creation_flags(0x08000000)
+            .arg("/c")
+            .arg(cmd)
+            .spawn();
+        exit(0);
     }
 }
 
-fn check_ini(path: &String) {
+/// 检查ini文件
+fn check_ini(path: &str) {
     let ini_path = path.to_owned() + "wegame_launch.ini";
     println!("{:?}", &ini_path);
     let mut conf = if PathBuf::from(&ini_path).exists() { Ini::load_from_file(&ini_path).unwrap() } else { Ini::new() };
@@ -168,6 +185,55 @@ fn check_ini(path: &String) {
             }
         }
     }
-    conf.with_section(Some("")).set("data_name", "lol");
+    conf.with_section(Some("TCLS")).set("data_name", "lol");
     conf.write_to_file(ini_path);
+}
+
+/// 检查tmp文件
+fn check_tmp(path: &str) -> std::io::Result<()> {
+    let tmp_path = path.to_owned() + "wegame_launch.tmp";
+    println!("{:?}", &tmp_path);
+
+
+    let mut conf;
+    if PathBuf::from(&tmp_path).exists() {
+        conf = Ini::load_from_file(&tmp_path).unwrap();
+        if let Some(prop) = conf.section(Some("TCLS")) {
+            if let Some(data_name) = prop.get("LastLoginMethod") {
+                if data_name == "1" {
+                    en_readonly(&tmp_path);
+                    return Ok(());
+                }
+            }
+        }
+        un_readonly(&tmp_path);
+        conf = Ini::load_from_file(&tmp_path).unwrap();
+    } else {
+        conf = Ini::new();
+    }
+    conf.with_section(Some("TCLS")).set("LastLoginMethod", "1");
+    conf.write_to_file(&tmp_path);
+
+    un_readonly(&tmp_path);
+    Ok(())
+}
+
+fn un_readonly(path: &String) {
+    let mut file = File::open(&path).unwrap();
+    let mut permissions = file.metadata().unwrap().permissions();
+    if permissions.readonly() {
+        permissions.set_readonly(false);
+        file.set_permissions(permissions);
+        file.flush();
+    }
+}
+
+fn en_readonly(path: &String) {
+    let mut file = File::open(&path).unwrap();
+    let mut permissions = file.metadata().unwrap().permissions();
+    if !permissions.readonly() {
+        permissions.set_readonly(true);
+        file.set_permissions(permissions);
+        file.flush();
+    }
 }
