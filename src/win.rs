@@ -2,11 +2,11 @@
 
 use std::ffi::*;
 use std::iter::*;
-use std::os::windows::prelude::*;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::prelude::OsStrExt;
 use std::{iter, ptr};
-use winapi::shared::minwindef::TRUE;
+use winapi::ctypes::c_int;
+use winapi::shared::minwindef::{TRUE, UINT};
 use winapi::um::commdlg::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OPENFILENAMEW};
 
 /// Filter for the files displayed in the dialog.
@@ -98,3 +98,12 @@ pub trait EncodeWideNulTerm: OsStrExt {
 
 // ... but this does...
 impl EncodeWideNulTerm for OsStr {}
+
+pub fn message_box(msg: &str, btn_type: UINT) -> c_int {
+    use std::ptr::null_mut;
+    use winapi::um::winuser::{MessageBoxW};
+    let wide: Vec<u16> = OsStr::new(msg).encode_wide().chain(once(0)).collect();
+    return unsafe {
+        MessageBoxW(null_mut(), wide.as_ptr(), wide.as_ptr(), btn_type)
+    };
+}
