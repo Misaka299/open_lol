@@ -1,4 +1,4 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 use std::env::{args, current_dir, current_exe};
 use std::fs::{File, remove_file};
