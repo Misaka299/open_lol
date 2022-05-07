@@ -7,6 +7,8 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, exit};
 
+use encoding::{EncoderTrap, Encoding};
+use encoding::all::GBK;
 use ini::Ini;
 use slint::re_exports::StandardButtonKind::ok;
 use winapi::um::winuser::{IDCANCEL, MB_OK, MB_OKCANCEL};
@@ -114,7 +116,7 @@ fn read_lol_path() -> String {
             message_box("未识别的文件或命令行", MB_OK);
             exit(0);
         });
-        check_current_exe_path();
+        check_current_exe_path(&path);
         return path;
     }
     let conf_path = current_dir().unwrap().join("open_lol.ini");
@@ -155,19 +157,33 @@ fn check_path_ini(conf_path: &PathBuf) -> Option<String> {
 }
 
 /// 检查当前exe目录是否正确
-fn check_current_exe_path() {
+fn check_current_exe_path(path: &String) {
+    let current_exe_path = current_exe().unwrap();
     let target_exe_path = PathBuf::from("c:\\".to_owned() + current_exe().unwrap().file_name().unwrap().to_str().unwrap());
-    println!("{:?}", current_exe().unwrap());
+    println!("{:?}", current_exe_path);
     println!("{:?}", target_exe_path);
     if current_exe().unwrap() != target_exe_path {
         println!("执行cmd");
-        let copy = "copy ".to_owned() + &current_exe().unwrap().to_str().unwrap() + &" " + &target_exe_path.to_str().unwrap();
-        let start = "start ".to_owned() + &target_exe_path.to_str().unwrap();
-        let cmd = format!("{} && {} && {}","sleep 1",copy,start);
+        let current_exe_path = current_exe_path.to_str().unwrap();
+        let target_exe_path = target_exe_path.to_str().unwrap();
+
+        let copy = "copy ".to_owned() + &current_exe_path + &" " + &target_exe_path;
+        let start = r"start %USERPROFILE%\Desktop\open_lol.lnk".to_owned();
+        let link = format!(
+            r#"mshta VBScript:Execute("Set a=CreateObject(""WScript.Shell""):Set b=a.CreateShortcut(a.SpecialFolders(""Desktop"") & ""\\open_lol.lnk""):b.TargetPath=""{}"":b.Arguments=""{}"":b.WorkingDirectory=""%~dp0"":b.Save:close")"#
+            , &target_exe_path, path);
+        let delete_exe = "rm ".to_owned() + current_exe_path;
+        let delete_bat = "rm c:\\open_lol.bat";
+        let cmd = format!("{} && {} && sleep 1 && {} && {} && {}", copy, link, delete_exe, delete_bat, start);
+        println!("{}", cmd);
+        let mut file = File::create("c:\\open_lol.bat").unwrap();
+        let bytes = GBK.encode(cmd.as_str(), EncoderTrap::Strict).unwrap();
+        file.write(bytes.as_ref());
+        file.flush();
         Command::new("cmd")
             .creation_flags(0x08000000)
             .arg("/c")
-            .arg(cmd)
+            .arg("c:\\open_lol.bat")
             .spawn();
         exit(0);
     }
