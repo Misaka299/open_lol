@@ -19,6 +19,6 @@ features = ["sysinfoapi", "winnt", "shlobj", "minwindef", "commdlg"]
 winres = "^0.1"
 
 [profile.release]
-opt-level = 2
+opt-level = 'z'
 lto = true
 codegen-units = 1
