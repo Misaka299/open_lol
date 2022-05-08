@@ -10,7 +10,6 @@ use std::process::{Command, exit};
 use encoding::{EncoderTrap, Encoding};
 use encoding::all::GBK;
 use ini::Ini;
-use slint::re_exports::StandardButtonKind::ok;
 use winapi::um::winuser::{IDCANCEL, MB_OK, MB_OKCANCEL};
 
 use crate::win::*;
@@ -107,7 +106,7 @@ fn main() {
 }
 
 fn read_lol_path() -> String {
-    // return "C:\\Users\\Admin\\Desktop\\ss\\Client.exe".to_string();
+    // return r"C:\Program Files\腾讯游戏\英雄联盟\TCLS\Client.exe".to_string();
     if args().count() > 0 {
         println!("{:?}", args());
         let path = args().find(|arg| {
@@ -117,6 +116,7 @@ fn read_lol_path() -> String {
             exit(0);
         });
         check_current_exe_path(&path);
+        message_box(&path, MB_OK);
         return path;
     }
     let conf_path = current_dir().unwrap().join("open_lol.ini");
@@ -170,21 +170,23 @@ fn check_current_exe_path(path: &String) {
         let copy = "copy ".to_owned() + &current_exe_path + &" " + &target_exe_path;
         let start = r"start %USERPROFILE%\Desktop\open_lol.lnk".to_owned();
         let link = format!(
-            r#"mshta VBScript:Execute("Set a=CreateObject(""WScript.Shell""):Set b=a.CreateShortcut(a.SpecialFolders(""Desktop"") & ""\\open_lol.lnk""):b.TargetPath=""{}"":b.Arguments=""{}"":b.WorkingDirectory=""%~dp0"":b.Save:close")"#
+            r#"mshta VBScript:Execute("Set a=CreateObject(""WScript.Shell""):Set b=a.CreateShortcut(a.SpecialFolders(""Desktop"") & ""\\open_lol.lnk""):b.TargetPath=""{}"":b.Arguments=Chr(34) & ""{}"" & Chr(34):b.WorkingDirectory=""%~dp0"":b.Save:close")"#
             , &target_exe_path, path);
         let delete_exe = "rm ".to_owned() + current_exe_path;
         let delete_bat = "rm c:\\open_lol.bat";
-        let cmd = format!("{} && {} && sleep 1 && {} && {} && {}", copy, link, delete_exe, delete_bat, start);
+        let cmd = format!("{} && {} && {} && sleep 2 && {} && {}\npause", copy, link,start, delete_exe, delete_bat );
         println!("{}", cmd);
         let mut file = File::create("c:\\open_lol.bat").unwrap();
         let bytes = GBK.encode(cmd.as_str(), EncoderTrap::Strict).unwrap();
         file.write(bytes.as_ref());
         file.flush();
         Command::new("cmd")
-            .creation_flags(0x08000000)
+            // .creation_flags(0x08000000)
+            .creation_flags(0x00000010)
             .arg("/c")
             .arg("c:\\open_lol.bat")
-            .spawn();
+            .spawn()
+            .is_ok();
         exit(0);
     }
 }
@@ -210,7 +212,6 @@ fn check_tmp(path: &str) -> std::io::Result<()> {
     let tmp_path = path.to_owned() + "wegame_launch.tmp";
     println!("{:?}", &tmp_path);
 
-
     let mut conf;
     if PathBuf::from(&tmp_path).exists() {
         conf = Ini::load_from_file(&tmp_path).unwrap();
@@ -230,7 +231,7 @@ fn check_tmp(path: &str) -> std::io::Result<()> {
     conf.with_section(Some("TCLS")).set("LastLoginMethod", "1");
     conf.write_to_file(&tmp_path);
 
-    un_readonly(&tmp_path);
+    en_readonly(&tmp_path);
     Ok(())
 }
 
